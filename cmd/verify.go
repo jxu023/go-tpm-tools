@@ -3,7 +3,6 @@ package cmd
 import (
 	"crypto"
 	"fmt"
-	"io"
 
 	"github.com/google/go-sev-guest/proto/sevsnp"
 	sv "github.com/google/go-sev-guest/verify"
@@ -25,22 +24,8 @@ var debugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "Debug the contents of an attestation report without verifying its root-of-trust (e.g., attestation key certificate). For debugging purposes only",
 	RunE: func(*cobra.Command, []string) error {
-		attestationBytes, err := io.ReadAll(dataInput())
-		if err != nil {
-			return err
-		}
 		attestation := &pb.Attestation{}
-
-		if format == "binarypb" {
-			err = proto.Unmarshal(attestationBytes, attestation)
-		} else if format == "textproto" {
-			err = unmarshalOptions.Unmarshal(attestationBytes, attestation)
-		} else {
-			return fmt.Errorf("format should be either binarypb or textproto")
-		}
-		if err != nil {
-			return fmt.Errorf("fail to unmarshal attestation report: %v", err)
-		}
+		err := readProtoFromPath(input, attestation)
 
 		pub, err := tpm2.DecodePublic(attestation.GetAkPub())
 		if err != nil {
@@ -108,19 +93,15 @@ func verifyGceTechnology(attestation *pb.Attestation) error {
 	if skipGceTechnology || attestation.GetTeeAttestation() == nil {
 		return nil
 	}
+	reportNonce := nonce
+	if len(teeNonce) != 0 {
+		reportNonce = teeNonce
+	}
 	switch attestation.GetTeeAttestation().(type) {
 	case *pb.Attestation_TdxAttestation:
-		var tdxOpts *verifyTdxOpts
-		if len(teeNonce) != 0 {
-			tdxOpts = &verifyTdxOpts{
-				Validation:   tdxDefaultValidateOpts(teeNonce),
-				Verification: tv.DefaultOptions(),
-			}
-		} else {
-			tdxOpts = &verifyTdxOpts{
-				Validation:   tdxDefaultValidateOpts(nonce),
-				Verification: tv.DefaultOptions(),
-			}
+		tdxOpts := &verifyTdxOpts{
+			Validation:   tdxDefaultValidateOpts(reportNonce),
+			Verification: tv.DefaultOptions(),
 		}
 		tee, ok := attestation.TeeAttestation.(*pb.Attestation_TdxAttestation)
 		if !ok {
@@ -128,17 +109,9 @@ func verifyGceTechnology(attestation *pb.Attestation) error {
 		}
 		return verifyTdxAttestation(tee.TdxAttestation, tdxOpts)
 	case *pb.Attestation_SevSnpAttestation:
-		var snpOpts *verifySnpOpts
-		if len(teeNonce) != 0 {
-			snpOpts = &verifySnpOpts{
-				Validation:   sevSnpDefaultValidateOpts(teeNonce),
-				Verification: &sv.Options{},
-			}
-		} else {
-			snpOpts = &verifySnpOpts{
-				Validation:   sevSnpDefaultValidateOpts(nonce),
-				Verification: &sv.Options{},
-			}
+		snpOpts := &verifySnpOpts{
+			Validation:   sevSnpDefaultValidateOpts(reportNonce),
+			Verification: &sv.Options{},
 		}
 		tee, ok := attestation.TeeAttestation.(*pb.Attestation_SevSnpAttestation)
 		if !ok {

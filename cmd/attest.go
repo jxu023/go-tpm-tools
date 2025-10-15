@@ -12,7 +12,6 @@ import (
 	"github.com/google/go-tpm-tools/proto/attest"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/proto"
 	rpb "github.com/google/go-tpm-tools/proto/register_credential"
 
 )
@@ -65,10 +64,6 @@ hardware and guarantees a fresh quote.
 			return err
 		}
 		defer rwc.Close()
-
-		if !(format == "binarypb" || format == "textproto") {
-			return fmt.Errorf("format should be either binarypb or textproto")
-		}
 
 		var attestationKey *client.Key
 		algoToCreateAK, ok := attestationKeys[key]
@@ -140,16 +135,7 @@ hardware and guarantees a fresh quote.
                        }
 		}
 
-		var out []byte
-		if format == "binarypb" {
-			out, err = proto.Marshal(attestation)
-			if err != nil {
-				return fmt.Errorf("failed to marshal attestation proto: %v", attestation)
-			}
-		} else {
-			out = []byte(marshalOptions.Format(attestation))
-		}
-		if _, err := dataOutput().Write(out); err != nil {
+		if err := writeProtoToOutput(attestation); err != nil {
 			return fmt.Errorf("failed to write attestation report: %v", err)
 		}
 		return nil
