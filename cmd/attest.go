@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,14 +10,15 @@ import (
 	"cloud.google.com/go/compute/metadata"
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/proto/attest"
+	rpb "github.com/google/go-tpm-tools/proto/register_credential"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
 	key           string
 	teeTechnology string
+	svsm          string
 )
 
 // Add constants for other devices when required
@@ -51,6 +53,8 @@ key or AK for a custom attestation key. By default it uses AK.
 by default rsa is used.
 --tee-nonce attaches a 64 bytes extra data to the attestation report of TDX and SEV-SNP 
 hardware and guarantees a fresh quote.
+--svsm specifies a SevSnpSvsmAttestation pb generated from the SVSM e-vTPM registration
+flow, this is used to populate the TeeAttestation.
 `,
 	Args: cobra.NoArgs,
 	RunE: func(*cobra.Command, []string) error {
@@ -121,6 +125,20 @@ hardware and guarantees a fresh quote.
 			attestation.InstanceInfo = instanceInfo
 		}
 
+		if svsm != "" {
+			cred := &rpb.SevSnpSvsmAttestation{}
+			err := readProtoFromPath(svsm, cred)
+			if err != nil {
+				return fmt.Errorf("failed to read registered credential: %w", err)
+			}
+			if !bytes.Equal(cred.GetCertifiedBlob().GetAkPub(), attestation.GetAkPub()) {
+				return fmt.Errorf("certified AK differs from attested AK")
+			}
+			attestation.TeeAttestation = &attest.Attestation_SevSnpAttestation{
+				SevSnpAttestation: cred.GetSevSnpAttestation(),
+			}
+		}
+
 		var out []byte
 		if format == "binarypb" {
 			out, err = proto.Marshal(attestation)
@@ -186,6 +204,10 @@ func addTeeTechnology(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&teeTechnology, "tee-technology", "", "indicates the type of TEE hardware. Should be either empty or one of sev-snp or tdx")
 }
 
+func addSVSMFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVar(&svsm, "svsm", "", "Indicates input path to SvsmAttestation in pb format.")
+}
+
 func init() {
 	RootCmd.AddCommand(attestCmd)
 	addKeyFlag(attestCmd)
@@ -195,4 +217,5 @@ func init() {
 	addOutputFlag(attestCmd)
 	addFormatFlag(attestCmd)
 	addTeeTechnology(attestCmd)
+	addSVSMFlag(attestCmd)
 }

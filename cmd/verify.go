@@ -105,7 +105,7 @@ func parseTEEAttestation(attestation *pb.Attestation, tech pb.GCEConfidentialTec
 }
 
 func verifyGceTechnology(attestation *pb.Attestation) error {
-	if attestation.GetTeeAttestation() == nil {
+	if skipGceTechnology || attestation.GetTeeAttestation() == nil {
 		return nil
 	}
 	switch attestation.GetTeeAttestation().(type) {
@@ -150,6 +150,14 @@ func verifyGceTechnology(attestation *pb.Attestation) error {
 	}
 }
 
+var skipGceTechnology bool
+
+func addSkipGceTechnologyFlag(cmd *cobra.Command) {
+       cmd.PersistentFlags().BoolVar(&skipGceTechnology, "skip-gce-technology", false,
+               "skip verifying GCE technology")
+}
+
+
 func init() {
 	RootCmd.AddCommand(verifyCmd)
 	verifyCmd.AddCommand(debugCmd)
@@ -158,4 +166,5 @@ func init() {
 	addInputFlag(debugCmd)
 	addFormatFlag(debugCmd)
 	addTeeNonceflag(debugCmd)
+	addSkipGceTechnologyFlag(verifyCmd)
 }
