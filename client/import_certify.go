@@ -59,6 +59,9 @@ func createCertifiedAKBlob(tpm transport.TPM, req *tpb.ImportBlob, keyAlgo tpm2.
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RSA EK: %w", err)
 	}
+	defer tpm2.FlushContext{
+		FlushHandle: ek.ObjectHandle,
+	}.Execute(tpm)
 
 	// Import the restricted HMAC key.
 	imported, err := tpm2.Import{
