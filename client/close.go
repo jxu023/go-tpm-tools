@@ -19,7 +19,7 @@ func CheckedClose(tb testing.TB, rwc io.ReadWriteCloser) {
 			tb.Errorf("failed to fetch handles of type %v: %v", t, err)
 		}
 		if len(handles) != 0 {
-			tb.Errorf("tests leaked handles: %v", handles)
+			tb.Errorf("tests leaked handles: %v with type as %v", handles, t)
 		}
 	}
 
