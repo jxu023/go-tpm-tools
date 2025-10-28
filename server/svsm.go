@@ -13,6 +13,7 @@ type VerifySVSMOpts struct {
 	TEENonce    []byte
 	Attestation *rpb.SevSnpSvsmAttestation
 	Secret      []byte
+	VerifyOpts  *verify.Options
 }
 
 // VerifySVSMAttestation checks the SNP attestation report to ensure it was requested by
@@ -20,7 +21,7 @@ type VerifySVSMOpts struct {
 // Other SNP attestation report values (including the launch measurement)
 // should be checked via gce tcb verifier's sev validate command.
 func VerifySVSMAttestation(opts *VerifySVSMOpts) error {
-	err := verifyChallenge(opts.Attestation.GetCertifiedBlob(), opts.Secret)
+	err := VerifyCertifiedAKBlob(opts.Attestation.GetCertifiedBlob(), opts.Secret)
 	if err != nil {
 		return fmt.Errorf("challenge verification failed: %w", err)
 	}
@@ -36,13 +37,15 @@ func VerifySVSMAttestation(opts *VerifySVSMOpts) error {
 		return fmt.Errorf("report data does not match expected value")
 	}
 	if report.Vmpl != 0 {
-		return fmt.Errorf("attestation report was not request from VMPL0, SVSM e-vTPM should be in VMPL0")
+		return fmt.Errorf("attestation report was not requested from VMPL0, SVSM should be in VMPL0")
 	}
 	// Check the signature, certificate chain, and basic
 	// well-formedness properties of the SNP attestation report.
-	err = verify.SnpAttestation(opts.Attestation.GetSevSnpAttestation(), &verify.Options{})
-	if err != nil {
-		return fmt.Errorf("SNP attestation verification failed: %w", err)
+	if opts.VerifyOpts != nil {
+		err = verify.SnpAttestation(opts.Attestation.GetSevSnpAttestation(), opts.VerifyOpts)
+		if err != nil {
+			return fmt.Errorf("SNP attestation verification failed: %w", err)
+		}
 	}
 	return nil
 }

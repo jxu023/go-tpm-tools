@@ -50,8 +50,7 @@ func CreateRestrictedHMACBlob(tPublic *tpm2.TPMTPublic) (*tpb.ImportBlob, []byte
 	}, hmacKey, nil
 }
 
-// verifyChallenge verifies the results of the TPM EK registration flow.
-func verifyChallenge(req *rpb.CertifiedBlob, secret []byte) error {
+func VerifyCertifiedAKBlob(req *rpb.CertifiedBlob, secret []byte) error {
 	akPub, err := tpm2.Unmarshal[tpm2.TPMTPublic](req.GetAkPub())
 	if err != nil {
 		return err

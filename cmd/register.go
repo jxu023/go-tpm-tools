@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/google/go-configfs-tsm/configfs/linuxtsm"
+	"github.com/google/go-sev-guest/verify"
 	"github.com/google/go-tpm-tools/client"
 	rpb "github.com/google/go-tpm-tools/proto/register_credential"
 	tpb "github.com/google/go-tpm-tools/proto/tpm"
@@ -84,10 +86,15 @@ var solveChallengeCmd = &cobra.Command{
 		defer rwc.Close()
 
 		tpm := transport.FromReadWriter(rwc)
+		configfs, err := linuxtsm.MakeClient()
+		if err != nil {
+			return fmt.Errorf("failed to make linuxtsm client: %v", err)
+		}
 		solved, err := client.MakeSVSMAttestation(tpm, &client.SVSMOpts{
-			Blob:     challenge,
-			AKAlgo:   tpm2.TPMAlgID(keyAlgo),
-			TEENonce: teeNonce,
+			Blob:            challenge,
+			AKAlgo:          tpm2.TPMAlgID(keyAlgo),
+			TEENonce:        teeNonce,
+			CongfigfsClient: configfs,
 		})
 		if err != nil {
 			return fmt.Errorf("could not solve challenge: %s", err)
@@ -120,6 +127,7 @@ var verifyChallengeCmd = &cobra.Command{
 			TEENonce:    teeNonce,
 			Attestation: attestation,
 			Secret:      secret,
+			VerifyOpts:  &verify.Options{},
 		})
 		if err != nil {
 			return fmt.Errorf("could not verify attestation: %s", err)

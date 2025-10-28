@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/google/go-configfs-tsm/configfs/linuxtsm"
+	"github.com/google/go-configfs-tsm/configfs/configfsi"
 	"github.com/google/go-configfs-tsm/report"
 	sabi "github.com/google/go-sev-guest/abi"
-	sg "github.com/google/go-sev-guest/client"
 	sevpb "github.com/google/go-sev-guest/proto/sevsnp"
 	rpb "github.com/google/go-tpm-tools/proto/register_credential"
 	tpb "github.com/google/go-tpm-tools/proto/tpm"
@@ -23,6 +22,8 @@ type SVSMOpts struct {
 	AKAlgo tpm2.TPMAlgID
 	// 64 byte nonce to be mixed into the REPORT_DATA field of the SNP attestation report.
 	TEENonce []byte
+	// Configfs client to use for retrieving the attestation report, certificates, and SVSM service manifest.
+	CongfigfsClient configfsi.Client
 }
 
 // MakeSVSMAttestation creates a SevSnpSvsmAttestation containing all the information needed to verify the SVSM e-vTPM.
@@ -37,7 +38,7 @@ func MakeSVSMAttestation(tpm transport.TPM, opts *SVSMOpts) (*rpb.SevSnpSvsmAtte
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certified ak blob: %w", err)
 	}
-	tsmBlobs, err := getSVSMBlobs(snpNonce)
+	tsmBlobs, err := getSVSMBlobs(opts.CongfigfsClient, snpNonce)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get configfs-tsm blobs for SVSM attestation report: %w", err)
 	}
@@ -46,7 +47,7 @@ func MakeSVSMAttestation(tpm transport.TPM, opts *SVSMOpts) (*rpb.SevSnpSvsmAtte
 		return nil, fmt.Errorf("failed to convert attestation report to proto: %w", err)
 	}
 
-	certs, err := getCertificates(snpNonce)
+	certs, err := getCertificates(opts.CongfigfsClient, snpNonce)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve certificates from configfs-tsm: %w", err)
 	}
@@ -78,30 +79,34 @@ const (
 
 // SVSM currently doesn't support certificates in its attestation report, so here we collect
 // the certificate chain by requesting a report without SVSM to get the cached certificates.
-func getCertificates(reportData [sabi.ReportDataSize]byte) (*sevpb.CertificateChain, error) {
-	qp, err := sg.GetLeveledQuoteProvider()
+func getCertificates(configfs configfsi.Client, reportData [sabi.ReportDataSize]byte) (*sevpb.CertificateChain, error) {
+	resp, err := report.Get(configfs, &report.Request{
+		InBlob:     reportData[:],
+		GetAuxBlob: true,
+		Privilege: &report.Privilege{
+			Level: uint(leastPrivilegedVMPL),
+		},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get leveled quote provider: %w", err)
+		return nil, fmt.Errorf("failed to retrieve certififcates")
 	}
-	rawWithCerts, err := qp.GetRawQuoteAtLevel(reportData, leastPrivilegedVMPL)
+	extended, err := sabi.ExtendedPlatformCertTable(resp.AuxBlob)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get raw quote: %v", err)
+		return nil, fmt.Errorf("invalid certificate table: %v", err)
 	}
-	reportWithCerts, err := sabi.ReportCertsToProto(rawWithCerts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse SEV-SNP report with certs: %v", err)
+	table := new(sabi.CertTable)
+	if err := table.Unmarshal(extended); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal certificates: %v", err)
 	}
-	return reportWithCerts.GetCertificateChain(), nil
+	return table.Proto(), nil
 }
 
-func getSVSMBlobs(reportData [sabi.ReportDataSize]byte) (*report.Response, error) {
-	req := &report.Request{
+func getSVSMBlobs(configfs configfsi.Client, reportData [sabi.ReportDataSize]byte) (*report.Response, error) {
+	resp, err := report.Get(configfs, &report.Request{
 		InBlob:          reportData[:],
 		ServiceProvider: svsmServiceProvider,
 		ServiceGuid:     svsmServiceGUID,
-	}
-
-	resp, err := linuxtsm.GetReport(req)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("could not get SVSM attestation report: %v", err)
 	}
